@@ -81,8 +81,9 @@ host_flag() {
 fetch_git ffmpeg https://github.com/FFmpeg/FFmpeg.git "$FFMPEG_TAG" "$FFMPEG_COMMIT"
 # Fetched by commit there is no tag, so FFmpeg would call itself by the bare
 # hash; yt-dlp reads that version. Its version script (ffbuild/version.sh)
-# takes the release number from FF_VERSION.
-echo "$FFMPEG_TAG" >"$SRC/ffmpeg/FF_VERSION"
+# takes the release number from FF_VERSION: write the bare number, as an
+# official release tarball reports it.
+echo "$FFMPEG_VERSION" >"$SRC/ffmpeg/FF_VERSION"
 fetch_git x264 https://code.videolan.org/videolan/x264.git "$X264_BRANCH" "$X264_COMMIT"
 fetch_git libvpx https://github.com/webmproject/libvpx.git "$LIBVPX_TAG" "$LIBVPX_COMMIT"
 fetch_git dav1d https://code.videolan.org/videolan/dav1d.git "$DAV1D_TAG" "$DAV1D_COMMIT"

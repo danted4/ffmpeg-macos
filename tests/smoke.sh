@@ -10,6 +10,8 @@ set -euo pipefail
 ZIP=${1:?usage: smoke.sh <zip> [runner]}
 RUNNER=${2:-}
 HERE=$(cd "$(dirname "$0")" && pwd)
+# shellcheck source=../versions.env
+source "$HERE/../versions.env"
 T=$(mktemp -d)
 trap 'rm -rf "$T"' EXIT
 
@@ -20,13 +22,18 @@ ok() { printf 'ok   %s\n' "$*"; }
 fail() { printf 'FAIL %s\n' "$*" >&2; exit 1; }
 
 # Capture first: `| head -1` can end with SIGPIPE (141) under pipefail.
-version=$($RUNNER "$T/bin/ffmpeg" -hide_banner -version)
-echo "${version%%$'\n'*}"
-version=$($RUNNER "$T/bin/ffprobe" -hide_banner -version)
-echo "${version%%$'\n'*}"
-# yt-dlp parses this: it must be a release number, not a bare git hash.
-grep -qE '^ffprobe version n?[0-9]+\.[0-9]+' <<<"$version" || fail "version is not a release number"
-ok "version: ${version%% Copyright*}"
+# yt-dlp reads the version line: it must be exactly the pinned release
+# number (not a git hash, not a stale build).
+for exe in ffmpeg ffprobe; do
+  output=$($RUNNER "$T/bin/$exe" -hide_banner -version)
+  first=${output%%$'\n'*}
+  echo "$first"
+  case "$first" in
+    "$exe version $FFMPEG_VERSION "*) ;;
+    *) fail "$exe reports '${first%% Copyright*}', expected $FFMPEG_VERSION" ;;
+  esac
+done
+ok "version: $FFMPEG_VERSION (ffmpeg and ffprobe)"
 
 for exe in ffmpeg ffprobe; do
   if otool -L "$T/bin/$exe" | tail -n +2 | grep -vE '^\s+(/usr/lib/|/System/Library/)'; then
