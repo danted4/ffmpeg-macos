@@ -24,6 +24,9 @@ version=$($RUNNER "$T/bin/ffmpeg" -hide_banner -version)
 echo "${version%%$'\n'*}"
 version=$($RUNNER "$T/bin/ffprobe" -hide_banner -version)
 echo "${version%%$'\n'*}"
+# yt-dlp parses this: it must be a release number, not a bare git hash.
+grep -qE '^ffprobe version n?[0-9]+\.[0-9]+' <<<"$version" || fail "version is not a release number"
+ok "version: ${version%% Copyright*}"
 
 for exe in ffmpeg ffprobe; do
   if otool -L "$T/bin/$exe" | tail -n +2 | grep -vE '^\s+(/usr/lib/|/System/Library/)'; then
