@@ -1,0 +1,89 @@
+name: Build
+
+# A push to main that changes the pins or the build publishes a release
+# tagged ${FFMPEG_VERSION}-${BUILD}. Run it by hand (workflow_dispatch) on any
+# branch, such as a bump PR, to build and smoke-test without publishing.
+on:
+  push:
+    branches: [main]
+    paths:
+      - versions.env
+      - build.sh
+      - tests/**
+      - .github/workflows/build.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: build (${{ matrix.arch }})
+    runs-on: macos-latest
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: arm64
+            triple: aarch64-apple-darwin
+            runner: ""
+          - arch: x86_64
+            triple: x86_64-apple-darwin
+            runner: arch -x86_64
+    steps:
+      - uses: actions/checkout@v5
+      - name: Build tools
+        run: brew install nasm meson ninja pkg-config
+      - name: Cached build
+        id: cache
+        uses: actions/cache@v4
+        with:
+          path: dist
+          key: ffmpeg-${{ matrix.arch }}-${{ hashFiles('versions.env', 'build.sh') }}
+      - name: Build
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: ./build.sh ${{ matrix.arch }}
+      - name: Smoke test
+        run: tests/smoke.sh dist/ffmpeg-${{ matrix.triple }}.zip "${{ matrix.runner }}"
+      - name: Size
+        run: ls -la dist
+      - uses: actions/upload-artifact@v6
+        with:
+          name: dist-${{ matrix.arch }}
+          path: dist/*
+          if-no-files-found: error
+
+  publish:
+    name: publish release
+    needs: build
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/download-artifact@v7
+        with:
+          path: dist
+          merge-multiple: true
+      - name: Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          source versions.env
+          tag="${FFMPEG_VERSION}-${BUILD}"
+          if gh release view "$tag" >/dev/null 2>&1; then
+            echo "release $tag already exists; bump BUILD in versions.env to publish again"
+            exit 0
+          fi
+          cd dist
+          sha256sum -- *.zip ffmpeg-LICENSE-and-SOURCE.txt > SHA256SUMS
+          cat SHA256SUMS
+          gh release create "$tag" --target "$GITHUB_SHA" --title "ffmpeg $tag" \
+            --notes "Static ffmpeg + ffprobe ${FFMPEG_VERSION} for macOS (Apple silicon and Intel), build ${BUILD}. GPL-2.0-or-later; sources in ffmpeg-LICENSE-and-SOURCE.txt." \
+            ./*.zip ffmpeg-LICENSE-and-SOURCE.txt SHA256SUMS

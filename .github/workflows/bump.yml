@@ -1,0 +1,40 @@
+name: Quarterly bump
+
+# Opens a PR that moves versions.env to the newest upstream releases.
+# PRs opened with GITHUB_TOKEN get no automatic CI: run the Build workflow by
+# hand on the PR branch, then merge. Merging builds and publishes.
+on:
+  schedule:
+    - cron: "0 6 1 1,4,7,10 *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  bump:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Check upstream
+        id: bump
+        run: echo "result=$(scripts/bump.sh | tail -1)" >> "$GITHUB_OUTPUT"
+      - name: Open PR
+        if: steps.bump.outputs.result == 'changed'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          source versions.env
+          branch="bump/${FFMPEG_VERSION}-${BUILD}"
+          if git ls-remote --exit-code origin "refs/heads/$branch" >/dev/null; then
+            echo "$branch already exists"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git switch -c "$branch"
+          git commit -am "bump sources to ffmpeg ${FFMPEG_VERSION} build ${BUILD}"
+          git push origin "$branch"
+          gh pr create --head "$branch" --title "bump to ffmpeg ${FFMPEG_VERSION}-${BUILD}" \
+            --body "$(printf 'Quarterly source bump.\n\n```\n%s\n```\n\nBefore merging, run the **Build** workflow by hand on this branch (Actions → Build → Run workflow → %s); PRs opened by Actions get no automatic CI. Merging publishes release %s.' "$(git diff HEAD~1 -- versions.env)" "$branch" "${FFMPEG_VERSION}-${BUILD}")"
