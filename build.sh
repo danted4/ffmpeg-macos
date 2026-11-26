@@ -8,6 +8,8 @@
 # Only what ytd uses is enabled: libx264, libvpx, libopus, libmp3lame,
 # libdav1d, zlib and Secure Transport (HTTPS input for trimmed downloads).
 set -euo pipefail
+# macOS bash 3.2 treats an empty array as unbound under -u: expand arrays as
+# ${arr[@]+"${arr[@]}"}.
 
 ARCH=${1:?usage: build.sh arm64|x86_64}
 case "$ARCH" in
@@ -108,7 +110,7 @@ log "libvpx"
   if [ "$ARCH" = x86_64 ]; then as_flag=(--as=nasm); fi
   CC=clang CXX=clang++ ./configure --prefix="$PREFIX" --target="$VPX_TARGET" \
     --disable-shared --enable-static --enable-pic --disable-examples --disable-tools \
-    --disable-docs --disable-unit-tests "${as_flag[@]}"
+    --disable-docs --disable-unit-tests ${as_flag[@]+"${as_flag[@]}"}
   make -j"$JOBS"
   make install
 )
@@ -134,7 +136,7 @@ EOF
     cross=(--cross-file cross.ini)
   fi
   meson setup build --prefix="$PREFIX" --libdir=lib --buildtype=release \
-    --default-library=static -Denable_tools=false -Denable_tests=false "${cross[@]}"
+    --default-library=static -Denable_tools=false -Denable_tests=false ${cross[@]+"${cross[@]}"}
   ninja -C build
   ninja -C build install
 )
@@ -145,7 +147,7 @@ log "ffmpeg $FFMPEG_VERSION"
   cross=()
   if [ "$CROSS" = 1 ]; then cross=(--enable-cross-compile --target-os=darwin); fi
   ./configure --prefix="$PREFIX" --arch="$FF_ARCH" --cc="$ARCHCC" --cxx="clang++ -arch $ARCH" \
-    "${cross[@]}" --x86asmexe=nasm \
+    ${cross[@]+"${cross[@]}"} --x86asmexe=nasm \
     --pkg-config=pkg-config --pkg-config-flags=--static \
     --extra-cflags="-I$PREFIX/include" --extra-ldflags="-L$PREFIX/lib" \
     --enable-gpl --enable-static --disable-shared --disable-autodetect \
