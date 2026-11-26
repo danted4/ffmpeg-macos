@@ -29,6 +29,12 @@ DIST=${DIST:-$HERE/dist}
 JOBS=$(sysctl -n hw.ncpu)
 CROSS=0
 [ "$(uname -m)" != "$ARCH" ] && CROSS=1
+# Only Apple silicon hosts are supported (CI uses them): an x86_64 build is
+# cross-compiled there. arm64 on an Intel host would need other tool flags.
+if [ "$(uname -m)" = x86_64 ] && [ "$ARCH" = arm64 ]; then
+  echo "build.sh: building arm64 on an Intel Mac is not supported; use Apple silicon" >&2
+  exit 2
+fi
 
 export MACOSX_DEPLOYMENT_TARGET=11.0
 # Only our own prefix: never pick up Homebrew's libraries.
@@ -41,15 +47,18 @@ mkdir -p "$SRC" "$PREFIX" "$DIST"
 
 log() { printf '\n==> %s\n' "$*"; }
 
-# git source pinned to a commit: clone the tag or branch, then check HEAD.
+# git source pinned to a commit: fetch that commit itself (not the tag or
+# branch tip, which can move), then check HEAD. `ref` is for the log only.
 fetch_git() {
   local name=$1 url=$2 ref=$3 commit=$4
-  log "fetch $name $ref"
-  git clone --quiet --depth 1 --branch "$ref" "$url" "$SRC/$name"
+  log "fetch $name $ref ($commit)"
+  git init --quiet "$SRC/$name"
+  git -C "$SRC/$name" fetch --quiet --depth 1 "$url" "$commit"
+  git -C "$SRC/$name" checkout --quiet FETCH_HEAD
   local head
   head=$(git -C "$SRC/$name" rev-parse HEAD)
   if [ "$head" != "$commit" ]; then
-    echo "$name: $ref is $head, expected $commit" >&2
+    echo "$name: fetched $head, expected $commit" >&2
     exit 1
   fi
 }

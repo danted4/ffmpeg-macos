@@ -19,8 +19,11 @@ FP="$RUNNER $T/bin/ffprobe -v error"
 ok() { printf 'ok   %s\n' "$*"; }
 fail() { printf 'FAIL %s\n' "$*" >&2; exit 1; }
 
-$RUNNER "$T/bin/ffmpeg" -hide_banner -version | head -1
-$RUNNER "$T/bin/ffprobe" -hide_banner -version | head -1
+# Capture first: `| head -1` can end with SIGPIPE (141) under pipefail.
+version=$($RUNNER "$T/bin/ffmpeg" -hide_banner -version)
+echo "${version%%$'\n'*}"
+version=$($RUNNER "$T/bin/ffprobe" -hide_banner -version)
+echo "${version%%$'\n'*}"
 
 for exe in ffmpeg ffprobe; do
   if otool -L "$T/bin/$exe" | tail -n +2 | grep -vE '^\s+(/usr/lib/|/System/Library/)'; then

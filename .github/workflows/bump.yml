@@ -1,14 +1,20 @@
 name: Quarterly bump
 
-# Opens a PR that moves versions.env to the newest upstream releases.
+# Opens a PR that moves versions.env to the newest upstream releases, in
+# January, April, July and October. It runs monthly because GitHub disables a
+# scheduled workflow after 60 days without repository activity: the runs in
+# other months only keep the schedule enabled. If it is disabled anyway,
+# re-enable it under Actions -> Quarterly bump.
+#
 # PRs opened with GITHUB_TOKEN get no automatic CI: run the Build workflow by
 # hand on the PR branch, then merge. Merging builds and publishes.
 on:
   schedule:
-    - cron: "0 6 1 1,4,7,10 *"
+    - cron: "0 6 1 * *"
   workflow_dispatch:
 
 permissions:
+  actions: write
   contents: write
   pull-requests: write
 
@@ -16,10 +22,29 @@ jobs:
   bump:
     runs-on: ubuntu-latest
     steps:
+      - name: Keep the schedule enabled
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh api -X PUT "repos/$GITHUB_REPOSITORY/actions/workflows/bump.yml/enable"
+      - name: Quarter month?
+        id: when
+        run: |
+          month=$(date -u +%-m)
+          if [ "$GITHUB_EVENT_NAME" != schedule ] || [ $(( (month - 1) % 3 )) -eq 0 ]; then
+            echo "bump=true" >> "$GITHUB_OUTPUT"
+          fi
       - uses: actions/checkout@v5
+        if: steps.when.outputs.bump == 'true'
       - name: Check upstream
         id: bump
-        run: echo "result=$(scripts/bump.sh | tail -1)" >> "$GITHUB_OUTPUT"
+        if: steps.when.outputs.bump == 'true'
+        run: |
+          scripts/bump.sh > bump.out
+          result=$(tail -1 bump.out)
+          case "$result" in
+            changed | unchanged) echo "result=$result" >> "$GITHUB_OUTPUT" ;;
+            *) echo "bump.sh printed '$result'" >&2; exit 1 ;;
+          esac
       - name: Open PR
         if: steps.bump.outputs.result == 'changed'
         env:
@@ -27,14 +52,15 @@ jobs:
         run: |
           source versions.env
           branch="bump/${FFMPEG_VERSION}-${BUILD}"
-          if git ls-remote --exit-code origin "refs/heads/$branch" >/dev/null; then
-            echo "$branch already exists"
-            exit 0
-          fi
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git switch -c "$branch"
           git commit -am "bump sources to ffmpeg ${FFMPEG_VERSION} build ${BUILD}"
-          git push origin "$branch"
+          # A leftover branch from an earlier run gets the fresh pins.
+          git push --force origin "$branch"
+          if [ -n "$(gh pr list --head "$branch" --state open --json number --jq '.[].number')" ]; then
+            echo "PR for $branch already open; its branch now has the fresh pins"
+            exit 0
+          fi
           gh pr create --head "$branch" --title "bump to ffmpeg ${FFMPEG_VERSION}-${BUILD}" \
-            --body "$(printf 'Quarterly source bump.\n\n```\n%s\n```\n\nBefore merging, run the **Build** workflow by hand on this branch (Actions → Build → Run workflow → %s); PRs opened by Actions get no automatic CI. Merging publishes release %s.' "$(git diff HEAD~1 -- versions.env)" "$branch" "${FFMPEG_VERSION}-${BUILD}")"
+            --body "$(printf 'Quarterly source bump.\n\n```\n%s\n```\n\nBefore merging, run the **Build** workflow by hand on this branch (Actions -> Build -> Run workflow -> %s); PRs opened by Actions get no automatic CI. Merging publishes release %s.' "$(git diff HEAD~1 -- versions.env)" "$branch" "${FFMPEG_VERSION}-${BUILD}")"
